@@ -39,3 +39,18 @@ export async function sendTelegramMessage(chatId: number, text: string) {
     console.error("telegram_send_failed", { status: res.status, body });
   }
 }
+
+export async function sendChatAction(chatId: number, action: "typing") {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  try {
+    await fetch(`${TELEGRAM_API}/bot${token}/sendChatAction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, action }),
+    });
+  } catch (error) {
+    console.error("telegram_chat_action_failed", error);
+  }
+}

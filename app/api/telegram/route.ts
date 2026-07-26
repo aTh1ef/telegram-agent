@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramUpdate } from "@/lib/telegram";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { sendTelegramMessage, sendChatAction } from "@/lib/telegram";
 import { isUserAllowed, markUpdateProcessed } from "@/lib/access";
-import { orchestrate } from "@/lib/agents/orchestrator";
+import { orchestrate, type OrchestrationResult } from "@/lib/agents/orchestrator";
 import { logConversation } from "@/lib/logger";
 
 export const runtime = "nodejs";
+
+const AGENT_LABELS: Record<OrchestrationResult["agentUsed"], string> = {
+  hr_policy: "📋 HR Policy Agent",
+  general: "💬 General Assistant",
+};
+
+function withAgentFooter(answer: string, agentUsed: OrchestrationResult["agentUsed"]) {
+  return `${answer}\n\n_via ${AGENT_LABELS[agentUsed]}_`;
+}
+
+// Telegram's "typing" indicator only lasts ~5s, so it's kept alive by
+// resending on an interval for as long as the LLM call is in flight.
+function startTypingIndicator(chatId: number) {
+  sendChatAction(chatId, "typing");
+  const interval = setInterval(() => sendChatAction(chatId, "typing"), 4000);
+  return () => clearInterval(interval);
+}
 
 export async function POST(req: NextRequest) {
   const secretHeader = req.headers.get("x-telegram-bot-api-secret-token");
@@ -53,12 +70,14 @@ export async function POST(req: NextRequest) {
   }
 
   const start = Date.now();
+  const stopTyping = startTypingIndicator(chatId);
 
   try {
     const { answer, agentUsed, matchedChunkIds } = await orchestrate(question);
     const responseTimeMs = Date.now() - start;
 
-    await sendTelegramMessage(chatId, answer);
+    stopTyping();
+    await sendTelegramMessage(chatId, withAgentFooter(answer, agentUsed));
     await logConversation({
       telegramUserId,
       telegramUsername: username,
@@ -71,6 +90,7 @@ export async function POST(req: NextRequest) {
       responseTimeMs,
     });
   } catch (error) {
+    stopTyping();
     console.error("webhook_processing_failed", error);
     await sendTelegramMessage(
       chatId,
