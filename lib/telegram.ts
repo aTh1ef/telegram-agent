@@ -27,11 +27,29 @@ function getToken(): string {
   return token;
 }
 
-// Models emit standard Markdown, but Telegram's legacy Markdown uses a single
-// asterisk for bold. Left as-is, every ** arrives as an unbalanced entity and
-// Telegram rejects the entire message with a 400.
-function toTelegramMarkdown(text: string): string {
-  return text.replace(/\*\*/g, "*");
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// HTML rather than Telegram's Markdown. Models emit **bold** plus "* " bullet
+// markers, and in Markdown mode both are asterisks, so a bulleted line carries
+// an odd number of delimiters and Telegram rejects the whole message. In HTML
+// mode the asterisk has no meaning, so the two can't collide.
+function toTelegramHtml(text: string): string {
+  return escapeHtml(text)
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>")
+    .replace(/^[ \t]*[*-][ \t]+/gm, "• ");
+}
+
+// Used when Telegram rejects the markup anyway: strip the syntax instead of
+// showing the reader raw ** and * characters.
+function toPlainText(text: string): string {
+  return text
+    .replace(/\*\*([\s\S]+?)\*\*/g, "$1")
+    .replace(/^[ \t]*[*-][ \t]+/gm, "• ");
 }
 
 function splitForTelegram(text: string): string[] {
@@ -55,7 +73,7 @@ function splitForTelegram(text: string): string[] {
 async function postMessage(
   chatId: number,
   text: string,
-  parseMode?: "Markdown"
+  parseMode?: "HTML"
 ): Promise<boolean> {
   const res = await fetch(`${TELEGRAM_API}/bot${getToken()}/sendMessage`, {
     method: "POST",
@@ -82,13 +100,23 @@ async function postMessage(
 // Returns false only if the message could not be delivered at all. Formatting
 // is best-effort: if Telegram rejects the markup, the same text is resent
 // unformatted rather than silently dropped.
-export async function sendTelegramMessage(chatId: number, text: string): Promise<boolean> {
+export async function sendTelegramMessage(
+  chatId: number,
+  text: string,
+  footer?: string
+): Promise<boolean> {
+  const parts = splitForTelegram(text);
   let delivered = true;
 
-  for (const part of splitForTelegram(text)) {
+  for (let i = 0; i < parts.length; i++) {
+    // The footer belongs on the final part only, and is kept out of the body
+    // conversion so its markup survives escaping.
+    const tail = i === parts.length - 1 && footer ? footer : "";
+    const html = toTelegramHtml(parts[i]) + (tail ? `\n\n<i>${escapeHtml(tail)}</i>` : "");
+    const plain = toPlainText(parts[i]) + (tail ? `\n\n${tail}` : "");
+
     const sent =
-      (await postMessage(chatId, toTelegramMarkdown(part), "Markdown")) ||
-      (await postMessage(chatId, part));
+      (await postMessage(chatId, html, "HTML")) || (await postMessage(chatId, plain));
     if (!sent) delivered = false;
   }
 

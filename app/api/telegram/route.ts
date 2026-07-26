@@ -14,8 +14,8 @@ const AGENT_LABELS: Record<OrchestrationResult["agentUsed"], string> = {
   general: "💬 General Assistant",
 };
 
-function withAgentFooter(answer: string, agentUsed: OrchestrationResult["agentUsed"]) {
-  return `${answer}\n\n_via ${AGENT_LABELS[agentUsed]}_`;
+function agentFooter(agentUsed: OrchestrationResult["agentUsed"]) {
+  return `via ${AGENT_LABELS[agentUsed]}`;
 }
 
 // Telegram's "typing" indicator only lasts ~5s, so it's kept alive by
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const responseTimeMs = Date.now() - start;
 
     stopTyping();
-    const delivered = await sendTelegramMessage(chatId, withAgentFooter(answer, agentUsed));
+    const delivered = await sendTelegramMessage(chatId, answer, agentFooter(agentUsed));
     if (!delivered) {
       // The answer was generated but never reached the user. Without this the
       // exchange still lands in the log looking like a success.
