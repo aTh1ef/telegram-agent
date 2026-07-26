@@ -20,9 +20,12 @@ export async function retrieveRelevantChunks(
     match_threshold: 0.55,
   });
 
+  // Thrown rather than swallowed: an empty result now means "no grounding
+  // exists", which routes to the general agent. A failed lookup must not be
+  // mistaken for that, or a policy question silently gets an ungrounded answer.
   if (error) {
     console.error("policy_chunk_retrieval_failed", error);
-    return [];
+    throw new Error(`Policy retrieval failed: ${error.message}`);
   }
 
   return (data ?? []) as PolicyMatch[];

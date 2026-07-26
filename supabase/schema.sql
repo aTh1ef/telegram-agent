@@ -22,8 +22,12 @@ create table if not exists policy_chunks (
   created_at timestamptz not null default now()
 );
 
+-- HNSW rather than IVFFlat: IVFFlat partitions rows into `lists` clusters and
+-- probes only one per query by default, so on a small table most clusters are
+-- empty and searches silently miss rows that do exist. HNSW keeps high recall
+-- at every corpus size.
 create index if not exists policy_chunks_embedding_idx
-  on policy_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+  on policy_chunks using hnsw (embedding vector_cosine_ops);
 
 -- Telegram user IDs allowed to talk to the bot.
 create table if not exists allowed_users (

@@ -3,9 +3,11 @@ import type { TelegramUpdate } from "@/lib/telegram";
 import { sendTelegramMessage, sendChatAction } from "@/lib/telegram";
 import { isUserAllowed, markUpdateProcessed } from "@/lib/access";
 import { orchestrate, type OrchestrationResult } from "@/lib/agents/orchestrator";
+import { getRecentHistory } from "@/lib/history";
 import { logConversation } from "@/lib/logger";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const AGENT_LABELS: Record<OrchestrationResult["agentUsed"], string> = {
   hr_policy: "📋 HR Policy Agent",
@@ -73,7 +75,8 @@ export async function POST(req: NextRequest) {
   const stopTyping = startTypingIndicator(chatId);
 
   try {
-    const { answer, agentUsed, matchedChunkIds } = await orchestrate(question);
+    const history = await getRecentHistory(telegramUserId);
+    const { answer, agentUsed, matchedChunkIds } = await orchestrate(question, history);
     const responseTimeMs = Date.now() - start;
 
     stopTyping();

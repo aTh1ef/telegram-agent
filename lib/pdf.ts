@@ -6,42 +6,54 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   return text;
 }
 
-const CHUNK_SIZE = 1000;
-const CHUNK_OVERLAP = 150;
+const CHUNK_SIZE = 900;
+const OVERLAP_SENTENCES = 1;
 
-// Splits on paragraph boundaries where possible, falling back to a fixed
-// character window with overlap so no sentence gets cut across chunks
-// without any shared context.
-export function chunkText(text: string): string[] {
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  const paragraphs = normalized.split(/\n\n+/).filter((p) => p.trim().length > 0);
+// PDF extraction usually returns one long run-on with no paragraph breaks, so
+// structure has to be recovered before splitting. Numbered headings ("4. End-of
+// Service Gratuity") are the natural section boundaries in policy documents.
+function restoreStructure(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+  const withBreaks = normalized.replace(/(\d+\.\s+[A-Z])/g, "\n\n$1");
+  return withBreaks.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
+}
 
+function splitSentences(text: string): string[] {
+  return text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [text];
+}
+
+// Packs sentences up to CHUNK_SIZE, carrying the tail sentence into the next
+// chunk so a fact split across a boundary still has context on both sides.
+// Sentence-aligned, so chunks never begin mid-word.
+function packSentences(sentences: string[]): string[] {
   const chunks: string[] = [];
-  let current = "";
+  let current: string[] = [];
+  let length = 0;
 
-  for (const paragraph of paragraphs) {
-    if ((current + "\n\n" + paragraph).length <= CHUNK_SIZE) {
-      current = current ? `${current}\n\n${paragraph}` : paragraph;
-      continue;
+  for (const sentence of sentences) {
+    if (length > 0 && length + sentence.length + 1 > CHUNK_SIZE) {
+      chunks.push(current.join(" "));
+      current = current.slice(-OVERLAP_SENTENCES);
+      length = current.join(" ").length;
     }
-
-    if (current) chunks.push(current);
-
-    if (paragraph.length <= CHUNK_SIZE) {
-      current = paragraph;
-    } else {
-      // Paragraph itself is too long — window it with overlap.
-      let start = 0;
-      while (start < paragraph.length) {
-        const end = Math.min(start + CHUNK_SIZE, paragraph.length);
-        chunks.push(paragraph.slice(start, end));
-        start += CHUNK_SIZE - CHUNK_OVERLAP;
-      }
-      current = "";
-    }
+    current.push(sentence);
+    length += sentence.length + 1;
   }
 
-  if (current) chunks.push(current);
+  if (current.length) chunks.push(current.join(" "));
+  return chunks;
+}
+
+export function chunkText(text: string): string[] {
+  const chunks: string[] = [];
+
+  for (const section of restoreStructure(text)) {
+    if (section.length <= CHUNK_SIZE) {
+      chunks.push(section);
+    } else {
+      chunks.push(...packSentences(splitSentences(section)));
+    }
+  }
 
   return chunks.filter((c) => c.trim().length > 20);
 }
