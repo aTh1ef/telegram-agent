@@ -80,7 +80,13 @@ export async function POST(req: NextRequest) {
     const responseTimeMs = Date.now() - start;
 
     stopTyping();
-    await sendTelegramMessage(chatId, withAgentFooter(answer, agentUsed));
+    const delivered = await sendTelegramMessage(chatId, withAgentFooter(answer, agentUsed));
+    if (!delivered) {
+      // The answer was generated but never reached the user. Without this the
+      // exchange still lands in the log looking like a success.
+      console.error("answer_not_delivered", { telegramUserId, question });
+    }
+
     await logConversation({
       telegramUserId,
       telegramUsername: username,
