@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramUpdate } from "@/lib/telegram";
 import { sendTelegramMessage, sendChatAction } from "@/lib/telegram";
-import { isUserAllowed, markUpdateProcessed } from "@/lib/access";
+import { isUserAllowed, markUpdateProcessed, syncChatMemberUpdate } from "@/lib/access";
 import { orchestrate, type OrchestrationResult } from "@/lib/agents/orchestrator";
 import { getRecentHistory } from "@/lib/history";
 import { logConversation } from "@/lib/logger";
@@ -39,6 +39,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Someone joined or left the access channel. Mirror it and stop; these
+  // updates carry no message. Repeat delivery is harmless here, since the
+  // sync is an upsert or a delete either way.
+  if (update.chat_member) {
+    await syncChatMemberUpdate(update.chat_member);
+    return NextResponse.json({ ok: true });
+  }
+
   const message = update.message;
   if (!message?.text || !message.from) {
     return NextResponse.json({ ok: true });
@@ -57,7 +65,8 @@ export async function POST(req: NextRequest) {
   if (!allowed) {
     await sendTelegramMessage(
       chatId,
-      "You're not authorized to use this bot. Contact the administrator for access."
+      "You don't have access to this bot yet. Please request to join the employee " +
+        "channel, and try again once an administrator approves you."
     );
     await logConversation({
       telegramUserId,

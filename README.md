@@ -77,15 +77,39 @@ npx vercel --prod
 Vercel's free tier gives you a `https://your-project.vercel.app` URL automatically —
 HTTPS is required for Telegram webhooks, so this is all you need, no ngrok.
 
-### 7. Register the webhook with Telegram
+### 7. Set up the access channel (optional but recommended)
+
+Collecting Telegram IDs by hand does not scale. Instead, membership of a private
+channel decides who may use the bot:
+
+1. Create a **private channel** in Telegram (New Channel → Private).
+2. Add your bot to it and promote it to **administrator**. Membership lookups are
+   only reliable for admin bots; a non-admin bot can report a real member as `left`.
+3. Under Invite Links, create a link with **Request Admin Approval** enabled. The
+   link alone does not grant entry, it only lets someone ask to join.
+4. Get the channel's numeric id (looks like `-1001234567890`): forward any message
+   from the channel to `@userinfobot`, which reports the origin chat id.
+5. Set `TELEGRAM_CHANNEL_ID` to that number, locally and in Vercel.
+
+Approving someone in Telegram now grants bot access automatically; removing them
+revokes it. Conversations still happen in private DMs, so nobody sees anyone
+else's HR questions. Manual entries on the Allowed Users page keep working
+alongside this, which is handy for testing.
+
+### 8. Register the webhook with Telegram
 
 Run this once (replace the placeholders):
 
 ```bash
 curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -d "url=https://your-project.vercel.app/api/telegram" \
-  -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+  -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>" \
+  -d "allowed_updates=[\"message\",\"chat_member\"]"
 ```
+
+`chat_member` is **not** delivered by default. If it is omitted here, membership
+changes silently never reach the bot and the channel sync will appear to do
+nothing.
 
 Verify it registered correctly:
 
@@ -97,9 +121,12 @@ Now message your bot on Telegram — if your ID is on the allowlist, it will ans
 
 ## Production notes
 
-- **Access control**: the bot only replies to Telegram user IDs in the
-  `allowed_users` table (manage from the dashboard). Everyone else is declined
-  and still logged with `agent_used = 'blocked'` for audit purposes.
+- **Access control**: access is granted by membership of the private channel set
+  in `TELEGRAM_CHANNEL_ID`. `chat_member` updates mirror joins and departures into
+  the `allowed_users` table so the per-message check stays one database lookup,
+  with a `getChatMember` fallback for anyone who joined before the bot became an
+  admin. Manual dashboard entries still work. Everyone else is declined and
+  logged with `agent_used = 'blocked'` for audit purposes.
 - **Webhook security**: every request is checked against `TELEGRAM_WEBHOOK_SECRET`
   via the `X-Telegram-Bot-Api-Secret-Token` header before anything else runs.
 - **Idempotency**: Telegram retries webhook delivery if a response is slow; the

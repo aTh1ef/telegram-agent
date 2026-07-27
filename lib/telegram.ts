@@ -16,9 +16,73 @@ export interface TelegramMessage {
   text?: string;
 }
 
+export type ChatMemberStatus =
+  | "creator"
+  | "administrator"
+  | "member"
+  | "restricted"
+  | "left"
+  | "kicked";
+
+export interface ChatMember {
+  user: TelegramUser;
+  status: ChatMemberStatus;
+  is_member?: boolean;
+}
+
+export interface ChatMemberUpdated {
+  chat: { id: number; title?: string; username?: string };
+  from: TelegramUser;
+  date: number;
+  old_chat_member: ChatMember;
+  new_chat_member: ChatMember;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  chat_member?: ChatMemberUpdated;
+}
+
+// "restricted" covers both muted members and users who were restricted on the
+// way out, so it only counts as access when is_member is explicitly true.
+export function isActiveMember(member: ChatMember | null): boolean {
+  if (!member) return false;
+  if (member.status === "restricted") return member.is_member === true;
+  return (
+    member.status === "creator" ||
+    member.status === "administrator" ||
+    member.status === "member"
+  );
+}
+
+export async function getChatMember(
+  chatId: string,
+  userId: number
+): Promise<ChatMember | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not set");
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}/bot${token}/getChatMember`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+    });
+
+    const body = await res.json();
+    if (!body.ok) {
+      // A user who never joined returns an error rather than a "left" status,
+      // so this is an expected path, not necessarily a misconfiguration.
+      console.warn("get_chat_member_failed", { userId, description: body.description });
+      return null;
+    }
+
+    return body.result as ChatMember;
+  } catch (error) {
+    console.error("get_chat_member_error", error);
+    return null;
+  }
 }
 
 function getToken(): string {

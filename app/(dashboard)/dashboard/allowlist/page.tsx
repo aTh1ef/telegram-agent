@@ -69,8 +69,10 @@ export default function AllowlistPage() {
     <div className="mx-auto max-w-3xl">
       <h1 className="text-2xl font-semibold text-fg">Allowed Users</h1>
       <p className="mt-1 text-sm text-fg-muted">
-        Only Telegram user IDs on this list can get responses from the bot. Everyone
-        else is silently declined and logged as blocked.
+        Members of the access channel are added here automatically when you approve
+        them, and removed when they leave. You can also grant access manually below,
+        which is useful for testing or for someone outside the channel. Anyone not
+        listed is declined and logged as blocked.
       </p>
 
       <form onSubmit={handleAdd} className="mt-6 flex flex-wrap items-end gap-3 rounded-md border border-border p-4">
