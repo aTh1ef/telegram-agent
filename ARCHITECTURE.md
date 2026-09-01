@@ -4,6 +4,8 @@ Architecture overview for the Telegram HR Assistant.
 
 ---
 
+![Telegram HR Assistant architecture](docs-architecture.png)
+
 
 ## Architecture Overview
 
